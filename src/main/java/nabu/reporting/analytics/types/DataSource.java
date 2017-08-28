@@ -9,8 +9,8 @@ import nabu.utils.types.ParameterDescription;
 @XmlRootElement
 public class DataSource {
 	private String id;
-	private DataSourceType type;
-	private boolean paged, streaming, orderable;
+	private List<DataSourceType> types;
+	private boolean paged, streaming, orderable, database;
 	private List<ParameterDescription> input;
 	private List<ParameterDescription> output;
 	
@@ -21,11 +21,11 @@ public class DataSource {
 		this.id = id;
 	}
 
-	public DataSourceType getType() {
-		return type;
+	public List<DataSourceType> getTypes() {
+		return types;
 	}
-	public void setType(DataSourceType type) {
-		this.type = type;
+	public void setTypes(List<DataSourceType> types) {
+		this.types = types;
 	}
 
 	public enum DataSourceType {
@@ -63,5 +63,11 @@ public class DataSource {
 	}
 	public void setOrderable(boolean orderable) {
 		this.orderable = orderable;
+	}
+	public boolean isDatabase() {
+		return database;
+	}
+	public void setDatabase(boolean database) {
+		this.database = database;
 	}
 }

@@ -2,13 +2,14 @@ package nabu.reporting.analytics.types;
 
 import java.util.List;
 
+import javax.validation.constraints.NotNull;
 import javax.xml.bind.annotation.XmlRootElement;
 
 import be.nabu.libs.types.api.KeyValuePair;
 
 @XmlRootElement
 public class DataSet {
-	private String id, description;
+	private String id, description, name, connectionId;
 	private List<KeyValuePair> parameters;
 	private Long offset;
 	private Integer limit;
@@ -20,6 +21,7 @@ public class DataSet {
 	public void setDescription(String description) {
 		this.description = description;
 	}
+	@NotNull
 	public String getId() {
 		return id;
 	}
@@ -49,5 +51,17 @@ public class DataSet {
 	}
 	public void setOrderBy(List<String> orderBy) {
 		this.orderBy = orderBy;
+	}
+	public String getName() {
+		return name;
+	}
+	public void setName(String name) {
+		this.name = name;
+	}
+	public String getConnectionId() {
+		return connectionId;
+	}
+	public void setConnectionId(String connectionId) {
+		this.connectionId = connectionId;
 	}
 }

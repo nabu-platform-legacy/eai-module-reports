@@ -3,8 +3,10 @@ package nabu.reporting.analytics;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
@@ -68,6 +70,7 @@ public class Services {
 		Element<?> parametersField = inputDefinition.get("parameters");
 		Element<?> totalRowCountField = inputDefinition.get("totalRowCount");
 		Element<?> orderByField = inputDefinition.get("orderBy");
+		Element<?> connectionIdField = inputDefinition.get("connection");
 		
 		boolean isParameters = false;
 		ComplexType input;
@@ -106,6 +109,9 @@ public class Services {
 		}
 		if (dataSet.getOrderBy() != null && orderByField != null) {
 			instance.set("orderBy", dataSet.getOrderBy());
+		}
+		if (dataSet.getConnectionId() != null && connectionIdField != null) {
+			instance.set("connection", dataSet.getConnectionId());
 		}
 		
 		Date timestamp = new Date();
@@ -158,7 +164,7 @@ public class Services {
 			if (entry.isNode()) {
 				if (Service.class.isAssignableFrom(entry.getNode().getArtifactClass())) {
 					try {
-						DataSourceType type = null;
+						Set<DataSourceType> types = new HashSet<DataSourceType>();
 						DefinedService service = (DefinedService) entry.getNode().getArtifact();
 						List<ParameterDescription> output = null, input = null;
 						boolean isNumbers = true;
@@ -168,26 +174,39 @@ public class Services {
 							}
 							// we need a list result set with multiple fields
 							if (element.getType() instanceof ComplexType && element.getType().isList(element.getProperties())) {
-								type = DataSourceType.SERIES;
-								for (Element<?> child : TypeUtils.getAllChildren((ComplexType) element.getType())) {
-									if (child.getType() instanceof SimpleType) {
-										if (!isNumeric(child)) {
-											type = DataSourceType.TABULAR;
-											break;
-										}
-									}
-									// if we have a non-simple type, we ignore this
-									else {
-										type = null;
+								boolean isSimple = true;
+								List<Element<?>> allChildren = new ArrayList<Element<?>>(TypeUtils.getAllChildren((ComplexType) element.getType()));
+								for (Element<?> child : allChildren) {
+									if (!(child.getType() instanceof SimpleType)) {
+										isSimple = false;
 										break;
 									}
 								}
-								// if we don't have a type here, ignore this service, otherwise it is a bit harder to correctly extract the result set when running
-								if (type == null) {
+								if (isSimple) {
+									// can always make a table out of it
+									types.add(DataSourceType.TABULAR);
+									// if there is only one numeric field or the second value is at least a numeric field (for the y-axis), we can make a line/bar out of it
+									if (allChildren.size() == 1 && allChildren.get(0).getType() instanceof SimpleType && Number.class.isAssignableFrom(((SimpleType<?>) allChildren.get(0).getType()).getInstanceClass())) {
+										types.add(DataSourceType.SERIES);
+									}
+									else if (allChildren.size() > 1 && allChildren.get(1).getType() instanceof SimpleType && Number.class.isAssignableFrom(((SimpleType<?>) allChildren.get(1).getType()).getInstanceClass())) {
+										types.add(DataSourceType.SERIES);
+									}
+								}
+								// if we have a complex type but it does not result in a tabular or series, ignore this service
+								// otherwise it can be harder to extract the result
+								if (types.isEmpty()) {
 									break;
 								}
+								else if (allChildren.size() == 2) {
+									if (allChildren.get(0).getType() instanceof SimpleType && String.class.isAssignableFrom(((SimpleType<?>) allChildren.get(0).getType()).getInstanceClass())) {
+										if (allChildren.get(1).getType() instanceof SimpleType && Number.class.isAssignableFrom(((SimpleType<?>) allChildren.get(1).getType()).getInstanceClass())) {
+											types.add(DataSourceType.GAUGE);
+										}
+									}
+								}
 							}
-							if (type != null) {
+							if (!types.isEmpty()) {
 								output = Node.toParameters((ComplexType) element.getType());
 								break;
 							}
@@ -198,6 +217,7 @@ public class Services {
 						Element<?> offset = inputDefinition.get("offset");
 						Element<?> parameters = inputDefinition.get("parameters");
 						Element<?> orderBy = inputDefinition.get("orderBy");
+						Element<?> connectionId = inputDefinition.get("connection");
 						
 						boolean paged = false;
 						// if we have an offset field, a limit field we assume you have a paged service
@@ -223,18 +243,19 @@ public class Services {
 						}
 						
 						// if all the outputs are numbers, we can still have a gauge
-						if (type == null && isNumbers) {
-							type = DataSourceType.GAUGE;
+						if (types.isEmpty() && isNumbers) {
+							types.add(DataSourceType.GAUGE);
 							output = Node.toParameters(service.getServiceInterface().getOutputDefinition());
 						}
-						if (type != null && output != null && !output.isEmpty()) {
+						if (!types.isEmpty() && output != null && !output.isEmpty()) {
 							DataSource source = new DataSource();
 							source.setId(entry.getId());
-							source.setType(type);
+							source.setTypes(new ArrayList<DataSourceType>(types));
 							source.setInput(input);
 							source.setOutput(output);
 							source.setPaged(paged);
 							source.setOrderable(orderBy != null);
+							source.setDatabase(connectionId != null);
 							sources.add(source);
 						}
 					}
