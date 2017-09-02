@@ -167,10 +167,13 @@ public class Services {
 						Set<DataSourceType> types = new HashSet<DataSourceType>();
 						DefinedService service = (DefinedService) entry.getNode().getArtifact();
 						List<ParameterDescription> output = null, input = null;
-						boolean isNumbers = true;
+						boolean isNumbers = true, isAllSimple = true;
 						for (Element<?> element : TypeUtils.getAllChildren(service.getServiceInterface().getOutputDefinition())) {
 							if (!(element.getType() instanceof SimpleType) || !isNumeric(element)) {
 								isNumbers = false;
+							}
+							if (!(element.getType() instanceof SimpleType)) {
+								isAllSimple = false;
 							}
 							// we need a list result set with multiple fields
 							if (element.getType() instanceof ComplexType && element.getType().isList(element.getProperties())) {
@@ -191,6 +194,10 @@ public class Services {
 									}
 									else if (allChildren.size() > 1 && allChildren.get(1).getType() instanceof SimpleType && Number.class.isAssignableFrom(((SimpleType<?>) allChildren.get(1).getType()).getInstanceClass())) {
 										types.add(DataSourceType.SERIES);
+									}
+									if (allChildren.size() > 2 && allChildren.get(1).getType() instanceof SimpleType && Number.class.isAssignableFrom(((SimpleType<?>) allChildren.get(1).getType()).getInstanceClass())
+											&& allChildren.get(2).getType() instanceof SimpleType && Number.class.isAssignableFrom(((SimpleType<?>) allChildren.get(2).getType()).getInstanceClass())) {
+										types.add(DataSourceType.WATERFALL);
 									}
 								}
 								// if we have a complex type but it does not result in a tabular or series, ignore this service
@@ -231,13 +238,11 @@ public class Services {
 						// if not defined above, we take the entire input definition and remove limit & offset
 						if (input == null) {
 							input = Node.toParameters(inputDefinition);
-							if (paged) {
-								Iterator<ParameterDescription> iterator = input.iterator();
-								while (iterator.hasNext()) {
-									ParameterDescription parameter = iterator.next();
-									if (parameter.getName().equals("offset") || parameter.getName().equals("limit")) {
-										iterator.remove();
-									}
+							Iterator<ParameterDescription> iterator = input.iterator();
+							while (iterator.hasNext()) {
+								ParameterDescription parameter = iterator.next();
+								if (parameter.getName().equals("offset") || parameter.getName().equals("limit") || parameter.getName().equals("connection") || parameter.getName().equals("orderBy")) {
+									iterator.remove();
 								}
 							}
 						}
@@ -246,6 +251,16 @@ public class Services {
 						if (types.isEmpty() && isNumbers) {
 							types.add(DataSourceType.GAUGE);
 							output = Node.toParameters(service.getServiceInterface().getOutputDefinition());
+						}
+						System.out.println(entry.getId() + ": is all simple?? " + isAllSimple);
+						if (isAllSimple && !types.contains(DataSourceType.FACT)) {
+							types.add(DataSourceType.FACT);
+							if (output == null) {
+								output = Node.toParameters(service.getServiceInterface().getOutputDefinition());
+							}
+						}
+						if (types.contains(DataSourceType.GAUGE) && !types.contains(DataSourceType.FACT)) {
+							types.add(DataSourceType.FACT);
 						}
 						if (!types.isEmpty() && output != null && !output.isEmpty()) {
 							DataSource source = new DataSource();

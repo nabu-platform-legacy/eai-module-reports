@@ -31,7 +31,9 @@ public class DataSource {
 	public enum DataSourceType {
 		GAUGE,
 		TABULAR,
-		SERIES
+		SERIES,
+		WATERFALL,
+		FACT
 	}
 	
 	public List<ParameterDescription> getInput() {
