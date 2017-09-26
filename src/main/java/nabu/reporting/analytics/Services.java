@@ -14,9 +14,19 @@ import javax.jws.WebParam;
 import javax.jws.WebResult;
 import javax.jws.WebService;
 
+import nabu.reporting.analytics.types.DataSet;
+import nabu.reporting.analytics.types.DataSource;
+import nabu.reporting.analytics.types.DataSource.DataSourceType;
+import nabu.reporting.analytics.types.ResultSet;
+import nabu.services.jdbc.types.Page;
+import nabu.utils.reflection.Node;
+import nabu.utils.types.ParameterDescription;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import be.nabu.eai.module.misc.executor.ExecutorArtifact;
+import be.nabu.eai.repository.EAIRepositoryUtils;
 import be.nabu.eai.repository.EAIResourceRepository;
 import be.nabu.eai.repository.api.Entry;
 import be.nabu.libs.services.api.DefinedService;
@@ -30,13 +40,6 @@ import be.nabu.libs.types.api.ComplexType;
 import be.nabu.libs.types.api.Element;
 import be.nabu.libs.types.api.KeyValuePair;
 import be.nabu.libs.types.api.SimpleType;
-import nabu.reporting.analytics.types.DataSet;
-import nabu.reporting.analytics.types.DataSource;
-import nabu.reporting.analytics.types.DataSource.DataSourceType;
-import nabu.reporting.analytics.types.ResultSet;
-import nabu.services.jdbc.types.Page;
-import nabu.utils.reflection.Node;
-import nabu.utils.types.ParameterDescription;
 
 @WebService
 public class Services {
@@ -46,19 +49,45 @@ public class Services {
 	private ExecutionContext context;
 
 	@WebResult(name = "results")
-	public List<ResultSet> runAll(@WebParam(name = "dataSets") List<DataSet> dataSets) throws InterruptedException, ExecutionException, ServiceException {
-		List<ResultSet> results = new ArrayList<ResultSet>();
+	public List<ResultSet> runAll(@WebParam(name = "dataSets") List<DataSet> dataSets, @WebParam(name = "executorServiceId") String executorServiceId) throws InterruptedException, ExecutionException, ServiceException {
+		final List<ResultSet> results = new ArrayList<ResultSet>();
 		if (dataSets != null) {
-			for (DataSet dataSet : dataSets) {
-				results.add(run(dataSet));
+			if (executorServiceId != null) {
+				ExecutorArtifact resolve = context.getServiceContext().getResolver(ExecutorArtifact.class).resolve(executorServiceId);
+				if (resolve == null) {
+					throw new IllegalArgumentException("Could not find executor service: " + executorServiceId);
+				}
+				List<Future<ServiceResult>> futures = new ArrayList<Future<ServiceResult>>();
+				for (final DataSet dataSet : dataSets) {
+					DefinedService service = context.getServiceContext().getResolver(DefinedService.class).resolve("nabu.reporting.analytics.Services.run");
+					ComplexContent input = service.getServiceInterface().getInputDefinition().newInstance();
+					input.set("dataSet", dataSet);
+					futures.add(resolve.run(service, input, context.getSecurityContext().getToken()));
+				}
+				
+				for (ServiceResult result : EAIRepositoryUtils.combine(futures).get()) {
+					if (result.getException() != null) {
+						throw result.getException();
+					}
+					results.add((ResultSet) result.getOutput().get("result"));
+				}
+			}
+			else {
+				for (final DataSet dataSet : dataSets) {
+					results.add(run(dataSet));
+				}
 			}
 		}
 		return results;
 	}
 	
-	@SuppressWarnings("unchecked")
 	@WebResult(name = "result")
 	public ResultSet run(@WebParam(name = "dataSet") DataSet dataSet) throws InterruptedException, ExecutionException, ServiceException {
+		return run(dataSet, context);
+	}
+	
+	@SuppressWarnings("unchecked")
+	private ResultSet run(@WebParam(name = "dataSet") DataSet dataSet, ExecutionContext context) throws InterruptedException, ExecutionException, ServiceException {
 		Service service = (Service) EAIResourceRepository.getInstance().resolve(dataSet.getId());
 		if (service == null) {
 			throw new IllegalArgumentException("No service found for: " + dataSet.getId());
@@ -124,6 +153,10 @@ public class Services {
 		
 		ComplexContent output = serviceResult.getOutput();
 		List<Object> results = null;
+
+		if (output == null) {
+			throw new RuntimeException("No content returned for dataset: " + dataSet.getId());
+		}
 		
 		boolean foundList = false;
 		for (Element<?> child : TypeUtils.getAllChildren(output.getType())) {
@@ -153,7 +186,9 @@ public class Services {
 		List<DataSource> sources = new ArrayList<DataSource>();
 		if (entries != null) {
 			for (String id : entries) {
-				sources(EAIResourceRepository.getInstance().getEntry(id), sources);
+				if (id != null) {
+					sources(EAIResourceRepository.getInstance().getEntry(id), sources);
+				}
 			}
 		}
 		return sources;
@@ -199,18 +234,14 @@ public class Services {
 											&& allChildren.get(2).getType() instanceof SimpleType && Number.class.isAssignableFrom(((SimpleType<?>) allChildren.get(2).getType()).getInstanceClass())) {
 										types.add(DataSourceType.WATERFALL);
 									}
+									if (allChildren.size() >= 2 && allChildren.get(1).getType() instanceof SimpleType && Number.class.isAssignableFrom(((SimpleType<?>) allChildren.get(1).getType()).getInstanceClass())) {
+										types.add(DataSourceType.GAUGE);
+									}
 								}
 								// if we have a complex type but it does not result in a tabular or series, ignore this service
 								// otherwise it can be harder to extract the result
 								if (types.isEmpty()) {
 									break;
-								}
-								else if (allChildren.size() == 2) {
-									if (allChildren.get(0).getType() instanceof SimpleType && String.class.isAssignableFrom(((SimpleType<?>) allChildren.get(0).getType()).getInstanceClass())) {
-										if (allChildren.get(1).getType() instanceof SimpleType && Number.class.isAssignableFrom(((SimpleType<?>) allChildren.get(1).getType()).getInstanceClass())) {
-											types.add(DataSourceType.GAUGE);
-										}
-									}
 								}
 							}
 							if (!types.isEmpty()) {
@@ -252,7 +283,6 @@ public class Services {
 							types.add(DataSourceType.GAUGE);
 							output = Node.toParameters(service.getServiceInterface().getOutputDefinition());
 						}
-						System.out.println(entry.getId() + ": is all simple?? " + isAllSimple);
 						if (isAllSimple && !types.contains(DataSourceType.FACT)) {
 							types.add(DataSourceType.FACT);
 							if (output == null) {

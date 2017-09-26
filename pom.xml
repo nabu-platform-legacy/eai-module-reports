@@ -53,6 +53,11 @@
 			<artifactId>eai-developer</artifactId>
 			<scope>provided</scope>
 		</dependency>
+		<dependency>
+			<groupId>nabu</groupId>
+			<artifactId>eai-module-executor</artifactId>
+			<scope>provided</scope>
+		</dependency>
 	</dependencies>
 
 </project>
